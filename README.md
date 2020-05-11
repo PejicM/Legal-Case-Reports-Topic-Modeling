@@ -1,0 +1,3 @@
+# Legal Case Reports Topic Modeling
+
+Business Intelligence project with data mining and NLP techniques...
