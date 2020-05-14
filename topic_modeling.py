@@ -6,6 +6,9 @@ Created on Wed May 13 14:44:43 2020
 """
 
 
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+
 import os
 import re
 import matplotlib.pyplot as plt
@@ -22,13 +25,18 @@ from nltk.stem import PorterStemmer, WordNetLemmatizer
 import spacy
 import en_core_web_sm
 from pprint import pprint
+import pyLDAvis
+import pyLDAvis.gensim  # don't skip this
+import matplotlib.pyplot as plt
 #nltk.download('stopwords')
-#nlp = en_core_web_sm.load()
 nlp = spacy.load('en_core_web_sm', disable=['parser', 'ner'])
 nltk.download('wordnet')
 stop_words = stopwords.words('english')
 
-# env varijabla za mallet (mogu je kasnije obrisati)
+#import warnings
+#warnings.filterwarnings("ignore",category=DeprecationWarning)
+
+# env varijabla za mallet
 os.environ['MALLET_HOME'] = 'C:\\mallet\\mallet-2.0.8'
 
 
@@ -67,9 +75,6 @@ def create_plaintext_from_sentences(documents):
     return data
 
 # Pretprocesiranje
-#def lemmatize_stemming(text, stemmer=PorterStemmer(), lemmatizer=WordNetLemmatizer()):
-#    return stemmer.stem(lemmatizer.lemmatize(text, pos='v'))       # lematizacija glagola i onda stemming svega
-
 # tokenization and stopwords removing 
 def preprocess(text):
     result = []
@@ -116,18 +121,35 @@ def create_dictionary(documents):
 def create_corpus(documents, dictionary):
     return [dictionary.doc2bow(document) for document in documents]
 
-def build_lda_model(dictionary, corpus):
-     lda_model = LdaModel(corpus=corpus,
-                          id2word=dictionary,
-                          num_topics=20,
-                          random_state=33,
-                          update_every=1,
-                          chunksize=100,
-                          passes=10,
-                          alpha=0.1,
-                          eta=0.001,
-                          per_word_topics=True)
-     return lda_model
+def build_lda_model(dictionary, corpus, lda_params, use_mallet=True):
+    num_topics, alpha, beta = lda_params
+    
+    if(use_mallet):
+        mallet_path = 'C:/mallet/mallet-2.0.8/bin/mallet.bat'
+        lda_model = LdaMallet(mallet_path,
+                              corpus=corpus,
+                              id2word=dictionary,
+                              num_topics=num_topics,
+                              alpha=alpha)
+    else:
+        lda_model = LdaModel(corpus=corpus,
+                             id2word=dictionary,
+                             num_topics=num_topics,
+                             random_state=33,
+                             update_every=1,
+                             chunksize=100,
+                             passes=10,
+                             alpha=alpha,
+                             eta=beta,
+                             per_word_topics=True)
+    
+    return lda_model
+ 
+# Coherence
+def get_coherence_score_lda(lda_model, dictionary, texts):
+    coherence_model_lda = CoherenceModel(model=lda_model, texts=texts, dictionary=dictionary, coherence='c_v')
+    coherence_lda = coherence_model_lda.get_coherence()
+    return coherence_lda
  
 def find_best_number_of_topics(dictionary, corpus, texts, limit, start=2, step=3):    
     coherence_values = []
@@ -158,6 +180,9 @@ def plot_coherence_scores(coherence_values, limit, start=2, step=3):
     plt.xlabel("Num Topics")
     plt.ylabel("Coherence score")
     plt.legend(("coherence_values"), loc='best')
+    
+def topics_visualization(lda_model, corpus, dictionary):
+    return pyLDAvis.gensim.prepare(lda_model, corpus, dictionary)
 
 
 ####### Test
@@ -188,32 +213,25 @@ dictionary = create_dictionary(data_lemmatized)
 corpus = create_corpus(data_lemmatized, dictionary)
 
 # Standard LDA gensim
-lda_model = build_lda_model(dictionary, corpus)
+params_lda = (20, 0.1, 0.001)    # num_topics, alpha, eta
+lda_model = build_lda_model(dictionary, corpus, params_lda, use_mallet=False)
 
 pprint(lda_model.print_topics())
 doc_lda = lda_model[corpus]
 
-# evaluation
-# Compute Perplexity
+# Evaluation
+# compute perplexity
+# ne moze za LdaMallet
 print('\nPerplexity: ', lda_model.log_perplexity(corpus))       # sto nize to bolje
 
-# Compute Coherence Score
-coherence_model_lda = CoherenceModel(model=lda_model, texts=texts, dictionary=dictionary, coherence='c_v')
-coherence_lda = coherence_model_lda.get_coherence()
+# compute coherence score
+coherence_lda = get_coherence_score_lda(lda_model, dictionary, texts)
 print('\nCoherence Score: ', coherence_lda)
+
+viz = topics_visualization(lda_model, corpus, dictionary)
 
 # Find best number of topics
 model_list, coherence_values = find_best_number_of_topics(dictionary=dictionary, corpus=corpus, texts=texts, start=2, limit=40, step=6)
 plot_coherence_scores(coherence_values, 40, 2, 6)
-
-
-# LDA Mallet model
-mallet_path = 'C:/mallet/mallet-2.0.8/bin/mallet.bat'
-lda_mallet = LdaMallet(mallet_path, corpus=corpus, num_topics=20, id2word=dictionary, alpha=0.1)
-
-print('\nPerplexity: ', lda_model.log_perplexity(corpus))       # sto nize to bolje
-coherence_model_lda = CoherenceModel(model=lda_model, texts=texts, dictionary=dictionary, coherence='c_v')
-coherence_lda = coherence_model_lda.get_coherence()
-print('\nCoherence Score: ', coherence_lda)
 
 
